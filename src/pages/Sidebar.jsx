@@ -110,7 +110,7 @@ const Sidebar = ({
           <div className="flex items-center">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center mr-3 bg-white p-1">
               <img
-                src="querylogo.png"
+                src="hoodlylogo.jpeg"
                 alt="Auction Here Logo"
                 className="w-full h-full object-contain"
               />
