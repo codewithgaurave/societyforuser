@@ -92,7 +92,7 @@ const Login = () => {
             className="text-3xl font-bold mb-1"
             style={{ color: themeColors.primary }}
           >
-            Society Admin
+            Society Operator
           </h1>
 
           <p

@@ -119,7 +119,7 @@ const Sidebar = ({
               className="text-xl font-bold"
               style={{ color: themeColors.primary }}
             >
-              Society Admin
+              Society Operator
             </h1>
           </div>
           <button

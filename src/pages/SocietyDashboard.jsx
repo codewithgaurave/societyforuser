@@ -332,7 +332,7 @@ export default function SocietyDashboard() {
             style={{ color: themeColors.text }}
           >
             <FaBuilding />
-            Society Admin Dashboard
+            Society Operator Dashboard
             <span className="text-xs font-normal opacity-70 ml-1">
               (Demo Data)
             </span>
