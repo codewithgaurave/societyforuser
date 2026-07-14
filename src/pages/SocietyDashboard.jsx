@@ -1,5 +1,5 @@
 // src/pages/SocietyDashboard.jsx
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { toast } from "sonner";
 import {
   FaUserFriends,
@@ -16,101 +16,9 @@ import {
   FaPhoneAlt,
 } from "react-icons/fa";
 import { useTheme } from "../context/ThemeContext";
+import { listUsers, updateUserBlockStatus } from "../apis/users";
 
-// ✅ PURE DUMMY / STATIC DATA (no APIs)
-const DUMMY_MEMBERS = [
-  {
-    id: "m1",
-    flatNumber: "A-101",
-    name: "Rahul Sharma",
-    phone: "9876543210",
-    email: "rahul.sharma@example.com",
-    status: "ACTIVE",
-    familyCount: 4,
-    vehicleCount: 2,
-    createdAt: "2024-09-10T09:30:00Z",
-  },
-  {
-    id: "m2",
-    flatNumber: "B-204",
-    name: "Neha Verma",
-    phone: "9898989898",
-    email: "neha.verma@example.com",
-    status: "INACTIVE",
-    familyCount: 3,
-    vehicleCount: 1,
-    createdAt: "2024-08-05T14:10:00Z",
-  },
-  {
-    id: "m3",
-    flatNumber: "C-305",
-    name: "Amit Patel",
-    phone: "9123456780",
-    email: "amit.patel@example.com",
-    status: "BLOCKED",
-    familyCount: 2,
-    vehicleCount: 0,
-    createdAt: "2024-07-20T18:45:00Z",
-  },
-  {
-    id: "m4",
-    flatNumber: "D-110",
-    name: "Priya Singh",
-    phone: "9000000001",
-    email: "priya.singh@example.com",
-    status: "ACTIVE",
-    familyCount: 5,
-    vehicleCount: 3,
-    createdAt: "2024-10-01T11:15:00Z",
-  },
-];
-
-const DUMMY_WORKERS = [
-  {
-    id: "w1",
-    name: "Ramesh Kumar",
-    type: "Security Guard",
-    role: "Gate Security",
-    employeeCode: "SEC-001",
-    phone: "9811111111",
-    shift: "Morning (7 AM - 3 PM)",
-    status: "ON_DUTY",
-    lastCheckInAt: "2024-10-20T07:05:00Z",
-  },
-  {
-    id: "w2",
-    name: "Suresh Yadav",
-    type: "Housekeeping",
-    role: "Cleaning Staff",
-    employeeCode: "HK-002",
-    phone: "9822222222",
-    shift: "Evening (3 PM - 11 PM)",
-    status: "OFF_DUTY",
-    lastCheckInAt: "2024-10-19T22:15:00Z",
-  },
-  {
-    id: "w3",
-    name: "Mahesh Gupta",
-    type: "Maintenance",
-    role: "Electrician",
-    employeeCode: "MT-003",
-    phone: "9833333333",
-    shift: "General (10 AM - 6 PM)",
-    status: "ON_DUTY",
-    lastCheckInAt: "2024-10-20T10:10:00Z",
-  },
-  {
-    id: "w4",
-    name: "Imran Khan",
-    type: "Security Guard",
-    role: "Tower Security",
-    employeeCode: "SEC-004",
-    phone: "9844444444",
-    shift: "Night (11 PM - 7 AM)",
-    status: "BLOCKED",
-    lastCheckInAt: "2024-09-15T23:55:00Z",
-  },
-];
+// Removed dummy data arrays
 
 const MEMBER_STATUS_OPTIONS = [
   { value: "ACTIVE", label: "Active" },
@@ -192,12 +100,66 @@ function getStatusChip(status, themeColors, type = "member") {
 
 export default function SocietyDashboard() {
   const { themeColors } = useTheme();
+  
+  // Live Data
+  const [members, setMembers] = useState([]);
+  const [workers, setWorkers] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  // 🔁 Now using static dummy data
-  const [members, setMembers] = useState(DUMMY_MEMBERS);
-  const [workers, setWorkers] = useState(DUMMY_WORKERS);
+  useEffect(() => {
+    loadDashboardData();
+  }, []);
+
+  const loadDashboardData = async () => {
+    try {
+      setLoading(true);
+      const res = await listUsers();
+      const allUsers = Array.isArray(res) ? res : res?.users || [];
+      
+      const parsedMembers = allUsers
+        .filter((u) => u.role === "society member")
+        .map((u) => ({
+          id: u._id,
+          flatNumber: u.address || "-", // Address is used as flat number for now
+          name: u.fullName,
+          phone: u.mobileNumber,
+          email: u.email,
+          status: u.isBlocked ? "BLOCKED" : "ACTIVE",
+          familyCount: "-", 
+          vehicleCount: "-",
+          createdAt: u.createdAt,
+        }));
+        
+      const parsedWorkers = allUsers
+        .filter((u) => u.role === "society service")
+        .map((u) => ({
+          id: u._id,
+          name: u.fullName,
+          type: u.serviceCategory?.name || "Service",
+          role: u.role,
+          employeeCode: u.registrationID,
+          phone: u.mobileNumber,
+          shift: "-",
+          status: u.isBlocked ? "BLOCKED" : "ON_DUTY", // Or whatever logic you prefer
+          lastCheckInAt: u.updatedAt,
+        }));
+
+      setMembers(parsedMembers);
+      setWorkers(parsedWorkers);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to load dashboard data");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const [activeTab, setActiveTab] = useState("members"); // "members" | "workers"
+
+  // pagination
+  const ITEMS_PER_PAGE = 10;
+  const [memberPage, setMemberPage] = useState(1);
+  const [workerPage, setWorkerPage] = useState(1);
 
   // filters
   const [memberSearch, setMemberSearch] = useState("");
@@ -260,6 +222,16 @@ export default function SocietyDashboard() {
     });
   }, [members, memberSearch, memberStatusFilter]);
 
+  useEffect(() => {
+    setMemberPage(1);
+  }, [memberSearch, memberStatusFilter]);
+
+  const paginatedMembers = useMemo(() => {
+    const start = (memberPage - 1) * ITEMS_PER_PAGE;
+    return filteredMembers.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredMembers, memberPage]);
+  const memberTotalPages = Math.ceil(filteredMembers.length / ITEMS_PER_PAGE);
+
   const filteredWorkers = useMemo(() => {
     const q = workerSearch.trim().toLowerCase();
 
@@ -280,10 +252,23 @@ export default function SocietyDashboard() {
     });
   }, [workers, workerSearch, workerStatusFilter]);
 
+  useEffect(() => {
+    setWorkerPage(1);
+  }, [workerSearch, workerStatusFilter]);
+
+  const paginatedWorkers = useMemo(() => {
+    const start = (workerPage - 1) * ITEMS_PER_PAGE;
+    return filteredWorkers.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredWorkers, workerPage]);
+  const workerTotalPages = Math.ceil(filteredWorkers.length / ITEMS_PER_PAGE);
+
   // ======== STATUS UPDATE HANDLERS (LOCAL ONLY, NO API) =========
 
-  const handleMemberStatusChange = (memberId, status) => {
+  const handleMemberStatusChange = async (memberId, status) => {
     setUpdatingMemberId(memberId);
+    try {
+      const isBlocked = status === "BLOCKED";
+      await updateUserBlockStatus(memberId, isBlocked);
 
     setMembers((prev) =>
       (prev || []).map((m) =>
@@ -297,12 +282,19 @@ export default function SocietyDashboard() {
       )
     );
 
-    toast.success("Member status updated (demo)");
-    setTimeout(() => setUpdatingMemberId(null), 400);
+    toast.success("Member status updated");
+    } catch (err) {
+      toast.error("Failed to update status");
+    } finally {
+      setUpdatingMemberId(null);
+    }
   };
 
-  const handleWorkerStatusChange = (workerId, status) => {
+  const handleWorkerStatusChange = async (workerId, status) => {
     setUpdatingWorkerId(workerId);
+    try {
+      const isBlocked = status === "BLOCKED";
+      await updateUserBlockStatus(workerId, isBlocked);
 
     setWorkers((prev) =>
       (prev || []).map((w) =>
@@ -316,8 +308,12 @@ export default function SocietyDashboard() {
       )
     );
 
-    toast.success("Worker status updated (demo)");
-    setTimeout(() => setUpdatingWorkerId(null), 400);
+    toast.success("Worker status updated");
+    } catch (err) {
+      toast.error("Failed to update status");
+    } finally {
+      setUpdatingWorkerId(null);
+    }
   };
 
   // ======== MAIN RENDER =========
@@ -334,15 +330,14 @@ export default function SocietyDashboard() {
             <FaBuilding />
             Society Operator Dashboard
             <span className="text-xs font-normal opacity-70 ml-1">
-              (Demo Data)
+              (Live Data)
             </span>
           </h1>
           <p
             className="text-sm mt-1 opacity-75"
             style={{ color: themeColors.text }}
           >
-            Society members aur workers ko ek hi jagah se manage karo — abhi sab
-            data demo / static hai.
+            Society members aur workers ko ek hi jagah se manage karo.
           </p>
         </div>
       </div>
@@ -623,7 +618,7 @@ export default function SocietyDashboard() {
                     className="divide-y"
                     style={{ borderColor: themeColors.border }}
                   >
-                    {filteredMembers.map((m) => {
+                    {paginatedMembers.map((m) => {
                       const chip = getStatusChip(m.status, themeColors, "member");
                       return (
                         <tr key={m.id}>
@@ -733,7 +728,7 @@ export default function SocietyDashboard() {
                       );
                     })}
 
-                    {filteredMembers.length === 0 && (
+                    {paginatedMembers.length === 0 && (
                       <tr>
                         <td
                           colSpan={7}
@@ -747,6 +742,36 @@ export default function SocietyDashboard() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Members Pagination UI */}
+              {memberTotalPages > 1 && (
+                <div className="p-4 border-t flex items-center justify-between" style={{ borderColor: themeColors.border }}>
+                  <span className="text-sm opacity-70" style={{ color: themeColors.text }}>
+                    Showing {(memberPage - 1) * ITEMS_PER_PAGE + 1} to {Math.min(memberPage * ITEMS_PER_PAGE, filteredMembers.length)} of {filteredMembers.length}
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      disabled={memberPage === 1}
+                      onClick={() => setMemberPage(p => Math.max(1, p - 1))}
+                      className="px-3 py-1 rounded border text-sm disabled:opacity-50"
+                      style={{ borderColor: themeColors.border, color: themeColors.text }}
+                    >
+                      Prev
+                    </button>
+                    <span className="px-3 py-1 text-sm" style={{ color: themeColors.text }}>
+                      {memberPage} / {memberTotalPages}
+                    </span>
+                    <button
+                      disabled={memberPage === memberTotalPages}
+                      onClick={() => setMemberPage(p => Math.min(memberTotalPages, p + 1))}
+                      className="px-3 py-1 rounded border text-sm disabled:opacity-50"
+                      style={{ borderColor: themeColors.border, color: themeColors.text }}
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
             </>
           )}
 
@@ -827,7 +852,7 @@ export default function SocietyDashboard() {
                     className="divide-y"
                     style={{ borderColor: themeColors.border }}
                   >
-                    {filteredWorkers.map((w) => {
+                    {paginatedWorkers.map((w) => {
                       const chip = getStatusChip(w.status, themeColors, "worker");
                       return (
                         <tr key={w.id}>
@@ -931,7 +956,7 @@ export default function SocietyDashboard() {
                       );
                     })}
 
-                    {filteredWorkers.length === 0 && (
+                    {paginatedWorkers.length === 0 && (
                       <tr>
                         <td
                           colSpan={7}
@@ -945,6 +970,36 @@ export default function SocietyDashboard() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Workers Pagination UI */}
+              {workerTotalPages > 1 && (
+                <div className="p-4 border-t flex items-center justify-between" style={{ borderColor: themeColors.border }}>
+                  <span className="text-sm opacity-70" style={{ color: themeColors.text }}>
+                    Showing {(workerPage - 1) * ITEMS_PER_PAGE + 1} to {Math.min(workerPage * ITEMS_PER_PAGE, filteredWorkers.length)} of {filteredWorkers.length}
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      disabled={workerPage === 1}
+                      onClick={() => setWorkerPage(p => Math.max(1, p - 1))}
+                      className="px-3 py-1 rounded border text-sm disabled:opacity-50"
+                      style={{ borderColor: themeColors.border, color: themeColors.text }}
+                    >
+                      Prev
+                    </button>
+                    <span className="px-3 py-1 text-sm" style={{ color: themeColors.text }}>
+                      {workerPage} / {workerTotalPages}
+                    </span>
+                    <button
+                      disabled={workerPage === workerTotalPages}
+                      onClick={() => setWorkerPage(p => Math.min(workerTotalPages, p + 1))}
+                      className="px-3 py-1 rounded border text-sm disabled:opacity-50"
+                      style={{ borderColor: themeColors.border, color: themeColors.text }}
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>

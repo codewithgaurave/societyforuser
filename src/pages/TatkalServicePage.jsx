@@ -65,7 +65,7 @@ export default function TatkalServicePage() {
 
   // unique service categories
   const serviceCategories = useMemo(() => {
-    const cats = users?.map((u) => u.serviceCategory).filter(Boolean) ?? [];
+    const cats = users?.map((u) => typeof u.serviceCategory === 'object' ? u.serviceCategory?.name : u.serviceCategory).filter(Boolean) ?? [];
     return Array.from(new Set(cats)).filter(cat => typeof cat === 'string');
   }, [users]);
 
@@ -81,7 +81,7 @@ export default function TatkalServicePage() {
           u.email,
           u.mobileNumber,
           u.whatsappNumber,
-          u.serviceCategory,
+          typeof u.serviceCategory === 'object' ? u.serviceCategory?.name : u.serviceCategory,
           u.pincode,
           u.registrationID,
         ]
@@ -92,7 +92,10 @@ export default function TatkalServicePage() {
     }
 
     if (filterCategory !== "all") {
-      list = list.filter((u) => u.serviceCategory === filterCategory);
+      list = list.filter((u) => {
+        const catName = typeof u.serviceCategory === 'object' ? u.serviceCategory?.name : u.serviceCategory;
+        return catName === filterCategory;
+      });
     }
 
     if (filterRole !== "all") {
@@ -106,6 +109,20 @@ export default function TatkalServicePage() {
 
     return list;
   }, [users, search, filterCategory, filterRole]);
+
+  const ITEMS_PER_PAGE = 10;
+  const [currentPage, setCurrentPage] = useState(1);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, filterCategory, filterRole]);
+
+  const paginatedUsers = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredUsers.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredUsers, currentPage]);
+
+  const totalPages = Math.ceil(filteredUsers.length / ITEMS_PER_PAGE);
 
   // ====== STATES ======
   if (loading) {
@@ -250,7 +267,7 @@ export default function TatkalServicePage() {
 
       {/* Cards Grid */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {filteredUsers.map((u) => (
+        {paginatedUsers.map((u) => (
           <div
             key={u._id}
             className="rounded-2xl border shadow-sm p-4 flex flex-col"
@@ -309,7 +326,7 @@ export default function TatkalServicePage() {
                     }}
                   >
                     <FaUserTie className="text-[10px]" />
-                    {String(u.serviceCategory || "Service")}
+                    {String((typeof u.serviceCategory === 'object' ? u.serviceCategory?.name : u.serviceCategory) || "Service")}
                   </span>
                   {u.role && (
                     <span
@@ -439,7 +456,36 @@ export default function TatkalServicePage() {
         ))}
       </div>
 
-      {filteredUsers.length === 0 && (
+      {totalPages > 1 && (
+        <div className="p-4 border-t flex items-center justify-between" style={{ borderColor: themeColors.border, backgroundColor: themeColors.surface, borderRadius: '0.5rem' }}>
+          <span className="text-sm opacity-70" style={{ color: themeColors.text }}>
+            Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, filteredUsers.length)} of {filteredUsers.length}
+          </span>
+          <div className="flex gap-2">
+            <button
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              className="px-3 py-1 rounded border text-sm disabled:opacity-50"
+              style={{ borderColor: themeColors.border, color: themeColors.text }}
+            >
+              Prev
+            </button>
+            <span className="px-3 py-1 text-sm" style={{ color: themeColors.text }}>
+              {currentPage} / {totalPages}
+            </span>
+            <button
+              disabled={currentPage === totalPages}
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              className="px-3 py-1 rounded border text-sm disabled:opacity-50"
+              style={{ borderColor: themeColors.border, color: themeColors.text }}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
+
+      {paginatedUsers.length === 0 && (
         <div
           className="text-center text-sm py-8 rounded-2xl border"
           style={{

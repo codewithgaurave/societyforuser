@@ -137,11 +137,11 @@ export default function UserManagementPage() {
   }, []);
 
   // Service category options (unique from categories + users)
-  const serviceCategoryOptions = useMemo(() => {
-    const fromCats = categories?.map((c) => c.name).filter(Boolean) ?? [];
-    const fromUsers = users?.map((u) => u.serviceCategory).filter(Boolean) ?? [];
-    return Array.from(new Set([...fromCats, ...fromUsers]));
-  }, [categories, users]);
+  const serviceCategories = useMemo(() => {
+    const fromUsers = users?.map((u) => typeof u.serviceCategory === 'object' ? u.serviceCategory?.name : u.serviceCategory).filter(Boolean) ?? [];
+    const fromApi = categories?.map((c) => c.name).filter(Boolean) ?? [];
+    return Array.from(new Set([...fromUsers, ...fromApi]));
+  }, [users, categories]);
 
   // ===== FILTER USERS =====
   const filteredUsers = useMemo(() => {
@@ -157,7 +157,7 @@ export default function UserManagementPage() {
           u.mobileNumber,
           u.whatsappNumber,
           u.role,
-          u.serviceCategory,
+          typeof u.serviceCategory === 'object' ? u.serviceCategory?.name : u.serviceCategory,
           u.registrationID,
           u.pincode,
         ]
@@ -175,7 +175,10 @@ export default function UserManagementPage() {
     // service category filter
     if (filterServiceCategory !== "all") {
       list = list.filter(
-        (u) => (u.serviceCategory || "") === filterServiceCategory
+        (u) => {
+          const catName = typeof u.serviceCategory === 'object' ? u.serviceCategory?.name : u.serviceCategory;
+          return (catName || "") === filterServiceCategory;
+        }
       );
     }
 
@@ -188,6 +191,19 @@ export default function UserManagementPage() {
 
     return list;
   }, [users, search, filterRole, filterServiceCategory, filterBlocked]);
+
+  const ITEMS_PER_PAGE = 10;
+  const [currentPage, setCurrentPage] = useState(1);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, filterRole, filterServiceCategory, filterBlocked]);
+
+  const paginatedUsers = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredUsers.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredUsers, currentPage]);
+  const totalPages = Math.ceil(filteredUsers.length / ITEMS_PER_PAGE);
 
   // ===== FORM HANDLERS =====
   const resetForm = () => {
@@ -359,7 +375,7 @@ export default function UserManagementPage() {
       address: user.address || "",
       pincode: user.pincode || "",
       role: user.role || "society member",
-      serviceCategory: user.serviceCategory || "",
+      serviceCategory: (typeof user.serviceCategory === 'object' ? user.serviceCategory?.name : user.serviceCategory) || "",
       experience: user.experience || "",
       adharCard: user.adharCard || "",
       serviceCharge: user.serviceCharge || "",
@@ -584,7 +600,7 @@ export default function UserManagementPage() {
             }}
           >
             <option value="all">All Service Categories</option>
-            {serviceCategoryOptions.map((cat) => (
+            {serviceCategories.map((cat) => (
               <option key={cat} value={cat}>
                 {cat}
               </option>
@@ -642,8 +658,8 @@ export default function UserManagementPage() {
               className="divide-y"
               style={{ borderColor: themeColors.border }}
             >
-              {filteredUsers.map((u) => (
-                <tr key={u._id}>
+              {paginatedUsers.map((u) => (
+                <tr key={u._id || u.id}>
                   <td
                     className="px-4 py-2 font-medium"
                     style={{ color: themeColors.text }}
@@ -686,7 +702,7 @@ export default function UserManagementPage() {
                     className="px-4 py-2 text-xs"
                     style={{ color: themeColors.text }}
                   >
-                    {u.serviceCategory || "-"}
+                    {(typeof u.serviceCategory === 'object' ? u.serviceCategory?.name : u.serviceCategory) || "-"}
                   </td>
                   <td className="px-4 py-2 text-xs">
                     <span
@@ -794,6 +810,36 @@ export default function UserManagementPage() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination UI */}
+        {totalPages > 1 && (
+          <div className="p-4 border-t flex items-center justify-between" style={{ borderColor: themeColors.border, backgroundColor: themeColors.surface, borderBottomLeftRadius: '1rem', borderBottomRightRadius: '1rem' }}>
+            <span className="text-sm opacity-70" style={{ color: themeColors.text }}>
+              Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, filteredUsers.length)} of {filteredUsers.length}
+            </span>
+            <div className="flex gap-2">
+              <button
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                className="px-3 py-1 rounded border text-sm disabled:opacity-50"
+                style={{ borderColor: themeColors.border, color: themeColors.text }}
+              >
+                Prev
+              </button>
+              <span className="px-3 py-1 text-sm" style={{ color: themeColors.text }}>
+                {currentPage} / {totalPages}
+              </span>
+              <button
+                disabled={currentPage === totalPages}
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                className="px-3 py-1 rounded border text-sm disabled:opacity-50"
+                style={{ borderColor: themeColors.border, color: themeColors.text }}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ===== MODAL: CREATE / EDIT ===== */}
@@ -1426,7 +1472,7 @@ export default function UserManagementPage() {
                                   border: `1px solid ${themeColors.border}`,
                                 }}
                               >
-                                Service: {u.serviceCategory}
+                                Service: {(typeof u.serviceCategory === 'object' ? u.serviceCategory?.name : u.serviceCategory)}
                               </span>
                             )}
                             {u.experience && (
@@ -1743,7 +1789,7 @@ export default function UserManagementPage() {
                             )}
                             <div className="flex justify-between items-center mt-1 text-[10px] opacity-80">
                               {tpl.serviceCategory && (
-                                <span>{tpl.serviceCategory}</span>
+                                <span>{(typeof tpl.serviceCategory === 'object' ? tpl.serviceCategory?.name : tpl.serviceCategory)}</span>
                               )}
                               <span>
                                 {fmtDate(tpl.createdAtIST || tpl.createdAt)}

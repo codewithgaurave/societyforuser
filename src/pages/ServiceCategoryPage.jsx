@@ -97,6 +97,20 @@ export default function ServiceCategoryPage() {
     );
   }, [categories, search]);
 
+  const ITEMS_PER_PAGE = 10;
+  const [currentPage, setCurrentPage] = useState(1);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search]);
+
+  const paginatedCategories = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredCategories.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredCategories, currentPage]);
+
+  const totalPages = Math.ceil(filteredCategories.length / ITEMS_PER_PAGE);
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
@@ -135,7 +149,7 @@ export default function ServiceCategoryPage() {
         const updated = res?.category || res?.data || res;
         if (updated) {
           setCategories((prev) =>
-            (prev || []).map((c) => (c.id === editingId ? updated : c))
+            (prev || []).map((c) => ((c._id || c.id) === editingId ? updated : c))
           );
         }
 
@@ -155,7 +169,7 @@ export default function ServiceCategoryPage() {
 
   const handleEditClick = (category) => {
     setMode("edit");
-    setEditingId(category.id);
+    setEditingId(category._id || category.id);
     setForm({
       name: category.name || "",
       description: category.description || "",
@@ -169,12 +183,13 @@ export default function ServiceCategoryPage() {
     if (!ok) return;
 
     try {
-      const res = await deleteServiceCategory(category.id);
+      const categoryId = category._id || category.id;
+      const res = await deleteServiceCategory(categoryId);
       toast.success(res?.message || "Category deleted successfully");
-      setCategories((prev) => (prev || []).filter((c) => c.id !== category.id));
+      setCategories((prev) => (prev || []).filter((c) => (c._id || c.id) !== categoryId));
 
       // if we were editing this, reset form
-      if (editingId === category.id) {
+      if (editingId === categoryId) {
         resetForm();
       }
     } catch (err) {
@@ -430,8 +445,8 @@ export default function ServiceCategoryPage() {
                 className="divide-y"
                 style={{ borderColor: themeColors.border }}
               >
-                {filteredCategories.map((c) => (
-                  <tr key={c.id}>
+                {paginatedCategories.map((c) => (
+                  <tr key={c._id || c.id}>
                     <td
                       className="px-4 py-2 font-medium"
                       style={{ color: themeColors.text }}
@@ -473,6 +488,35 @@ export default function ServiceCategoryPage() {
               </tbody>
             </table>
           </div>
+
+          {totalPages > 1 && (
+            <div className="p-4 border-t flex items-center justify-between mt-auto" style={{ borderColor: themeColors.border }}>
+              <span className="text-sm opacity-70" style={{ color: themeColors.text }}>
+                Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, filteredCategories.length)} of {filteredCategories.length}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  className="px-3 py-1 rounded border text-sm disabled:opacity-50"
+                  style={{ borderColor: themeColors.border, color: themeColors.text }}
+                >
+                  Prev
+                </button>
+                <span className="px-3 py-1 text-sm" style={{ color: themeColors.text }}>
+                  {currentPage} / {totalPages}
+                </span>
+                <button
+                  disabled={currentPage === totalPages}
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  className="px-3 py-1 rounded border text-sm disabled:opacity-50"
+                  style={{ borderColor: themeColors.border, color: themeColors.text }}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
