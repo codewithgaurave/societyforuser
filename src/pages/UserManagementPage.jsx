@@ -27,6 +27,7 @@ import {
   getUserDetails, // ✅ NEW IMPORT
 } from "../apis/users";
 import { listServiceCategories } from "../apis/serviceCategory";
+import { toggleUserAvailabilityApi } from "../apis/availability";
 import Swal from "sweetalert2"; // SweetAlert2 import
 
 const fmtDateTime = (d) => {
@@ -1589,6 +1590,39 @@ export default function UserManagementPage() {
                           <FaCalendarAlt />
                           Availability
                         </h3>
+                        {u.role === "society service" && (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-medium" style={{ color: themeColors.text }}>
+                              Status:
+                            </span>
+                            <button
+                              onClick={async () => {
+                                try {
+                                  const isCurrentlyAvailable = viewDetails.availability?.some((s) => s.isAvailable) ?? false;
+                                  const res = await toggleUserAvailabilityApi(u._id || u.id, !isCurrentlyAvailable);
+                                  toast.success(res.message);
+                                  openViewModal(u);
+                                } catch (err) {
+                                  toast.error(err?.response?.data?.message || err?.message || "Failed to update availability");
+                                }
+                              }}
+                              className="px-2 py-0.5 rounded text-[10px] font-semibold border cursor-pointer transition-all duration-200"
+                              style={{
+                                backgroundColor: (viewDetails.availability?.some((s) => s.isAvailable) ?? false)
+                                  ? themeColors.success + "20"
+                                  : themeColors.danger + "20",
+                                color: (viewDetails.availability?.some((s) => s.isAvailable) ?? false)
+                                  ? themeColors.success
+                                  : themeColors.danger,
+                                borderColor: (viewDetails.availability?.some((s) => s.isAvailable) ?? false)
+                                  ? themeColors.success + "40"
+                                  : themeColors.danger + "40",
+                              }}
+                            >
+                              {(viewDetails.availability?.some((s) => s.isAvailable) ?? false) ? "Available" : "Unavailable"}
+                            </button>
+                          </div>
+                        )}
                       </div>
 
                       {(!viewDetails.availability ||
