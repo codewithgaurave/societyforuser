@@ -14,7 +14,7 @@ import {
 } from "react-icons/fa";
 import { toast } from "sonner";
 import { useTheme } from "../context/ThemeContext";
-import { listAvailability } from "../apis/availability";
+import { listAvailability, toggleUserAvailabilityApi } from "../apis/availability";
 
 const fmtDateOnly = (d) => {
   if (!d) return "-";
@@ -333,8 +333,17 @@ export default function AvailabilityPage() {
                 </div>
 
                 <div className="flex flex-col items-end gap-1">
-                  <span
-                    className="px-2 py-0.5 rounded-full text-[11px] font-semibold inline-flex items-center gap-1"
+                  <button
+                    onClick={async () => {
+                      try {
+                        const res = await toggleUserAvailabilityApi(user._id || user.id, !a.isAvailable);
+                        toast.success(res.message);
+                        loadAvailability();
+                      } catch (err) {
+                        toast.error(err?.response?.data?.message || err?.message || "Failed to update availability");
+                      }
+                    }}
+                    className="px-2 py-0.5 rounded-full text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer transition-all duration-200 border"
                     style={{
                       backgroundColor: a.isAvailable
                         ? themeColors.success + "20"
@@ -342,6 +351,9 @@ export default function AvailabilityPage() {
                       color: a.isAvailable
                         ? themeColors.success
                         : themeColors.danger,
+                      borderColor: a.isAvailable
+                        ? themeColors.success + "40"
+                        : themeColors.danger + "40",
                     }}
                   >
                     {a.isAvailable ? (
@@ -355,7 +367,7 @@ export default function AvailabilityPage() {
                         Unavailable
                       </>
                     )}
-                  </span>
+                  </button>
 
                   {user.tatkalEnabled && (
                     <span

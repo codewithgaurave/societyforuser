@@ -8,6 +8,8 @@ import {
   FaImages,
   FaCalendarAlt,
   FaObjectGroup, // 👈 NEW icon for Main Categories
+  FaThList,
+  FaCommentAlt,
 } from "react-icons/fa";
 
 const SocietyDashboard = lazy(() => import("../pages/SocietyDashboard"));
@@ -33,6 +35,14 @@ const AvailabilityPage = lazy(() =>
 // 👇 NEW — Main Category Page
 const MainCategoryPage = lazy(() =>
   import("../pages/MainCategoryPage")
+);
+
+const CommunityCategoryPage = lazy(() =>
+  import("../pages/CommunityCategoryPage")
+);
+
+const CommunityPostPage = lazy(() =>
+  import("../pages/CommunityPostPage")
 );
 
 const routes = [
@@ -91,6 +101,18 @@ const routes = [
     component: AvailabilityPage,
     name: "Availability",
     icon: FaCalendarAlt,
+  },
+  {
+    path: "/community-categories",
+    component: CommunityCategoryPage,
+    name: "Community Categories",
+    icon: FaThList,
+  },
+  {
+    path: "/community-posts",
+    component: CommunityPostPage,
+    name: "Community Posts",
+    icon: FaCommentAlt,
   },
 ];
 

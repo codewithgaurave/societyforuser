@@ -22,6 +22,7 @@ import {
   listUsers,
   registerUser,
   updateUserBlockStatus,
+  updateUserRwaStatus,
   adminUpdateUser,
   deleteUser,
   getUserDetails, // ✅ NEW IMPORT
@@ -68,6 +69,7 @@ const emptyForm = {
   serviceCharge: "",
   perHourCharge: "",
   tatkalEnabled: false,
+  isRwaUser: false,
 };
 
 export default function UserManagementPage() {
@@ -382,6 +384,7 @@ export default function UserManagementPage() {
       serviceCharge: user.serviceCharge || "",
       perHourCharge: user.perHourCharge || "",
       tatkalEnabled: Boolean(user.tatkalEnabled),
+      isRwaUser: Boolean(user.isRwaUser),
     });
 
     setIsModalOpen(true);
@@ -451,6 +454,43 @@ export default function UserManagementPage() {
         err?.response?.data?.message ||
         err?.message ||
         "Failed to update block status.";
+      toast.error(msg);
+    }
+  };
+
+  const handleRwaToggle = async (user) => {
+    const newStatus = !user.isRwaUser;
+
+    try {
+      const res = await updateUserRwaStatus(user._id, newStatus);
+      const updated = res?.user || res?.data;
+
+      setUsers((prev) =>
+        (prev || []).map((u) =>
+          u._id === user._id
+            ? {
+                ...u,
+                ...(updated || {}),
+                isRwaUser:
+                  typeof updated?.isRwaUser === "boolean"
+                    ? updated.isRwaUser
+                    : newStatus,
+              }
+            : u
+        )
+      );
+
+      toast.success(
+        res?.message ||
+          (newStatus
+            ? "RWA access granted to user"
+            : "RWA access revoked from user")
+      );
+    } catch (err) {
+      const msg =
+        err?.response?.data?.message ||
+        err?.message ||
+        "Failed to update RWA access.";
       toast.error(msg);
     }
   };
@@ -641,6 +681,7 @@ export default function UserManagementPage() {
                   "Role",
                   "Service Category",
                   "Tatkal",
+                  "RWA Access",
                   "Blocked",
                   "Created",
                   "Actions",
@@ -724,6 +765,21 @@ export default function UserManagementPage() {
                     <span
                       className="px-2 py-0.5 rounded-full text-[11px] font-semibold inline-flex items-center gap-1"
                       style={{
+                        backgroundColor: u.isRwaUser
+                          ? "#6366F120"
+                          : themeColors.border,
+                        color: u.isRwaUser
+                          ? "#6366F1"
+                          : themeColors.text,
+                      }}
+                    >
+                      {u.isRwaUser ? "✓ RWA User" : "No"}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-xs">
+                    <span
+                      className="px-2 py-0.5 rounded-full text-[11px] font-semibold inline-flex items-center gap-1"
+                      style={{
                         backgroundColor: u.isBlocked
                           ? themeColors.danger + "15"
                           : themeColors.success + "15",
@@ -791,6 +847,28 @@ export default function UserManagementPage() {
                             <span className="text-[11px]">Block</span>
                           </>
                         )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleRwaToggle(u)}
+                        className="px-2 py-1 rounded-md border inline-flex items-center gap-1"
+                        style={{
+                          borderColor: u.isRwaUser
+                            ? "#6366F1"
+                            : themeColors.border,
+                          backgroundColor: u.isRwaUser
+                            ? "#6366F115"
+                            : themeColors.background,
+                          color: u.isRwaUser
+                            ? "#6366F1"
+                            : themeColors.text,
+                        }}
+                        title={u.isRwaUser ? "Revoke RWA Notice Board posting access" : "Grant RWA Notice Board posting access"}
+                      >
+                        <span className="text-[11px] font-medium">
+                          {u.isRwaUser ? "Revoke RWA" : "Grant RWA"}
+                        </span>
                       </button>
                     </div>
                   </td>
@@ -1266,6 +1344,31 @@ export default function UserManagementPage() {
                   >
                     Tatkal Service Enabled
                   </label>
+                </div>
+
+                {/* RWA User Access */}
+                <div className="flex items-center gap-2 mt-2 p-2 rounded-lg border" style={{ borderColor: themeColors.border, backgroundColor: form.isRwaUser ? "#6366F110" : "transparent" }}>
+                  <input
+                    id="isRwaUser"
+                    name="isRwaUser"
+                    type="checkbox"
+                    checked={form.isRwaUser}
+                    onChange={handleInputChange}
+                    disabled={saving}
+                    className="h-4 w-4 text-indigo-600 rounded"
+                  />
+                  <div>
+                    <label
+                      htmlFor="isRwaUser"
+                      className="text-xs font-semibold tracking-wide cursor-pointer block"
+                      style={{ color: themeColors.text }}
+                    >
+                      RWA Access (Can Post to RWA Notice Board)
+                    </label>
+                    <span className="text-[11px] opacity-75 block">
+                      Admin access granted to publish official notices in RWA Notice Board
+                    </span>
+                  </div>
                 </div>
 
                 {/* Buttons */}

@@ -38,6 +38,13 @@ export const updateUserBlockStatus = async (userId, isBlocked) => {
   return data;
 };
 
+// ADMIN ONLY: Grant / Revoke RWA user access
+// PATCH /api/users/:userId/rwa-status
+export const updateUserRwaStatus = async (userId, isRwaUser) => {
+  const { data } = await http.patch(`/api/users/${userId}/rwa-status`, { isRwaUser });
+  return data;
+};
+
 // ADMIN ONLY: Update user (without password)
 // PUT /api/users/:userId
 export const adminUpdateUser = async (userId, payload) => {
