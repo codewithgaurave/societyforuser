@@ -14,9 +14,14 @@ import {
   FaUser,
   FaUserTie,
   FaPhoneAlt,
+  FaFilter,
+  FaTimes,
+  FaDownload,
+  FaClock,
 } from "react-icons/fa";
 import { useTheme } from "../context/ThemeContext";
 import { listUsers, updateUserBlockStatus } from "../apis/users";
+import { toggleUserAvailabilityApi } from "../apis/availability";
 
 // Removed dummy data arrays
 
@@ -43,6 +48,25 @@ const fmtDateTime = (d) => {
   } catch {
     return "-";
   }
+};
+
+const fmtDate = (d) => {
+  if (!d) return "-";
+  try {
+    const dt = new Date(d);
+    return dt.toLocaleDateString();
+  } catch {
+    return "-";
+  }
+};
+
+const getRenewalStyle = (plan, expiryDate, defaultColor) => {
+  if (!plan || plan === "free" || !expiryDate) return { color: defaultColor };
+  const diffTime = new Date(expiryDate) - new Date();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return { color: "#dc2626", fontWeight: "bold" };
+  if (diffDays <= 7) return { color: "#ea580c", fontWeight: "bold" };
+  return { color: defaultColor };
 };
 
 function getStatusChip(status, themeColors, type = "member") {
@@ -100,7 +124,7 @@ function getStatusChip(status, themeColors, type = "member") {
 
 export default function SocietyDashboard() {
   const { themeColors } = useTheme();
-  
+
   // Live Data
   const [members, setMembers] = useState([]);
   const [workers, setWorkers] = useState([]);
@@ -121,6 +145,8 @@ export default function SocietyDashboard() {
         .map((u) => ({
           id: u._id,
           flatNumber: u.address || "-", // Address is used as flat number for now
+          address: u.address || "-",
+          pincode: u.pincode || "-",
           name: u.fullName,
           phone: u.mobileNumber,
           email: u.email,
@@ -128,6 +154,8 @@ export default function SocietyDashboard() {
           familyCount: "-", 
           vehicleCount: "-",
           createdAt: u.createdAt,
+          activePlan: u.activePlan,
+          planExpiryDate: u.planExpiryDate,
         }));
         
       const parsedWorkers = allUsers
@@ -140,8 +168,10 @@ export default function SocietyDashboard() {
           employeeCode: u.registrationID,
           phone: u.mobileNumber,
           shift: "-",
-          status: u.isBlocked ? "BLOCKED" : "ON_DUTY", // Or whatever logic you prefer
+          status: u.isBlocked ? "BLOCKED" : (u.isAvailable ? "ON_DUTY" : "OFF_DUTY"), // Or whatever logic you prefer
           lastCheckInAt: u.updatedAt,
+          address: u.address || "-",
+          pincode: u.pincode || "-",
         }));
 
       setMembers(parsedMembers);
@@ -154,6 +184,7 @@ export default function SocietyDashboard() {
     }
   };
 
+
   const [activeTab, setActiveTab] = useState("members"); // "members" | "workers"
 
   // pagination
@@ -161,16 +192,25 @@ export default function SocietyDashboard() {
   const [memberPage, setMemberPage] = useState(1);
   const [workerPage, setWorkerPage] = useState(1);
 
-  // filters
+  // filters - Members
   const [memberSearch, setMemberSearch] = useState("");
   const [memberStatusFilter, setMemberStatusFilter] = useState("ALL");
+  const [memberPlanFilter, setMemberPlanFilter] = useState("ALL");
+  const [memberSort, setMemberSort] = useState("NEWEST");
 
+  // filters - Workers
   const [workerSearch, setWorkerSearch] = useState("");
   const [workerStatusFilter, setWorkerStatusFilter] = useState("ALL");
+  const [workerTypeFilter, setWorkerTypeFilter] = useState("ALL");
 
   // status update tracking (just for UI demo)
   const [updatingMemberId, setUpdatingMemberId] = useState(null);
   const [updatingWorkerId, setUpdatingWorkerId] = useState(null);
+
+  // Service types for workers
+  const workerServiceTypes = useMemo(() => {
+    return Array.from(new Set(workers.map((w) => w.type).filter(Boolean)));
+  }, [workers]);
 
   // ======== SUMMARY STATS =========
   const summary = useMemo(() => {
@@ -190,6 +230,39 @@ export default function SocietyDashboard() {
       (w) => String(w.status || "").toUpperCase() === "OFF_DUTY"
     ).length;
 
+    const now = new Date();
+    
+    // Start of today
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    
+    // Start of this week (assuming Monday is the first day of the week)
+    const currentDay = startOfToday.getDay();
+    const distanceToMonday = currentDay === 0 ? 6 : currentDay - 1;
+    const startOfThisWeek = new Date(startOfToday);
+    startOfThisWeek.setDate(startOfToday.getDate() - distanceToMonday);
+
+    // Start of last week
+    const startOfLastWeek = new Date(startOfThisWeek);
+    startOfLastWeek.setDate(startOfThisWeek.getDate() - 7);
+
+    // Start of this month
+    const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    // Start of last month
+    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+    const membersThisWeek = members.filter(m => new Date(m.createdAt) >= startOfThisWeek).length;
+    const membersLastWeek = members.filter(m => {
+      const d = new Date(m.createdAt);
+      return d >= startOfLastWeek && d < startOfThisWeek;
+    }).length;
+
+    const workersThisWeek = workers.filter(w => new Date(w.createdAt) >= startOfThisWeek).length;
+    const workersLastWeek = workers.filter(w => {
+      const d = new Date(w.createdAt);
+      return d >= startOfLastWeek && d < startOfThisWeek;
+    }).length;
+
     return {
       totalMembers,
       activeMembers,
@@ -197,15 +270,130 @@ export default function SocietyDashboard() {
       totalWorkers,
       onDutyWorkers,
       offDutyWorkers,
+      membersThisWeek,
+      membersLastWeek,
+      workersThisWeek,
+      workersLastWeek
     };
   }, [members, workers]);
+
+  // Quick Chips Counts
+  const memberChips = useMemo(() => {
+    const now = new Date();
+    let expiringSoon = 0;
+    members.forEach((m) => {
+      if (m.planExpiryDate && m.activePlan && String(m.activePlan).toLowerCase() !== "free") {
+        const diffDays = Math.ceil((new Date(m.planExpiryDate) - now) / (1000 * 60 * 60 * 24));
+        if (diffDays >= 0 && diffDays <= 7) expiringSoon++;
+      }
+    });
+    return {
+      total: members.length,
+      active: summary.activeMembers,
+      blocked: summary.blockedMembers,
+      expiringSoon,
+    };
+  }, [members, summary]);
+
+  const workerChips = useMemo(() => {
+    return {
+      total: workers.length,
+      onDuty: summary.onDutyWorkers,
+      offDuty: summary.offDutyWorkers,
+      blocked: workers.filter((w) => String(w.status || "").toUpperCase() === "BLOCKED").length,
+    };
+  }, [workers, summary]);
+
+  // Member Filter Reset & Active Check
+  const hasMemberFilters = 
+    Boolean(memberSearch.trim()) ||
+    memberStatusFilter !== "ALL" ||
+    memberPlanFilter !== "ALL" ||
+    memberSort !== "NEWEST";
+
+  const resetMemberFilters = () => {
+    setMemberSearch("");
+    setMemberStatusFilter("ALL");
+    setMemberPlanFilter("ALL");
+    setMemberSort("NEWEST");
+  };
+
+  // Worker Filter Reset & Active Check
+  const hasWorkerFilters =
+    Boolean(workerSearch.trim()) ||
+    workerStatusFilter !== "ALL" ||
+    workerTypeFilter !== "ALL";
+
+  const resetWorkerFilters = () => {
+    setWorkerSearch("");
+    setWorkerStatusFilter("ALL");
+    setWorkerTypeFilter("ALL");
+  };
+
+  // Export handlers
+  const handleExportMembersCsv = () => {
+    if (!filteredMembers.length) {
+      toast.error("No members to export");
+      return;
+    }
+    const headers = ["Address", "Member Name", "Phone", "Email", "Status", "Active Plan", "Renewal Date", "Joined Date"];
+    const rows = filteredMembers.map((m) => [
+      `"${(m.address || "").replace(/"/g, '""')}"`,
+      `"${(m.name || "").replace(/"/g, '""')}"`,
+      `"${(m.phone || "").toString().replace(/"/g, '""')}"`,
+      `"${(m.email || "").replace(/"/g, '""')}"`,
+      `"${m.status || ""}"`,
+      `"${m.activePlan || "free"}"`,
+      `"${m.planExpiryDate ? fmtDate(m.planExpiryDate) : "-"}"`,
+      `"${m.createdAt ? fmtDateTime(m.createdAt) : "-"}"`,
+    ]);
+    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `members_export_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast.success("Members CSV exported successfully!");
+  };
+
+  const handleExportWorkersCsv = () => {
+    if (!filteredWorkers.length) {
+      toast.error("No workers to export");
+      return;
+    }
+    const headers = ["Name", "Service Type", "Role", "Employee Code", "Phone", "Status", "Address"];
+    const rows = filteredWorkers.map((w) => [
+      `"${(w.name || "").replace(/"/g, '""')}"`,
+      `"${(w.type || "").replace(/"/g, '""')}"`,
+      `"${(w.role || "").replace(/"/g, '""')}"`,
+      `"${(w.employeeCode || "").replace(/"/g, '""')}"`,
+      `"${(w.phone || "").toString().replace(/"/g, '""')}"`,
+      `"${w.status || ""}"`,
+      `"${(w.address || "").replace(/"/g, '""')}"`,
+    ]);
+    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `workers_export_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast.success("Workers CSV exported successfully!");
+  };
 
   // ======== FILTERED LISTS =========
 
   const filteredMembers = useMemo(() => {
     const q = memberSearch.trim().toLowerCase();
 
-    return (members || []).filter((m) => {
+    let list = (members || []).filter((m) => {
       const statusOk =
         memberStatusFilter === "ALL"
           ? true
@@ -213,18 +401,56 @@ export default function SocietyDashboard() {
 
       const searchOk =
         !q ||
-        [m.name, m.flatNumber, m.phone, m.email]
+        [m.name, m.flatNumber, m.phone, m.email, m.address]
           .filter(Boolean)
           .map((v) => String(v).toLowerCase())
           .some((v) => v.includes(q));
 
-      return statusOk && searchOk;
+      // Plan filter
+      let planOk = true;
+      if (memberPlanFilter !== "ALL") {
+        const plan = (m.activePlan || "free").toLowerCase();
+        const isFree = !m.activePlan || plan === "free";
+        const now = new Date();
+        if (memberPlanFilter === "FREE") planOk = isFree;
+        else if (memberPlanFilter === "PAID") planOk = !isFree;
+        else if (memberPlanFilter === "EXPIRING_SOON") {
+          if (isFree || !m.planExpiryDate) planOk = false;
+          else {
+            const diffDays = Math.ceil((new Date(m.planExpiryDate) - now) / (1000 * 60 * 60 * 24));
+            planOk = diffDays >= 0 && diffDays <= 7;
+          }
+        } else if (memberPlanFilter === "EXPIRED") {
+          if (isFree || !m.planExpiryDate) planOk = false;
+          else {
+            const diffDays = Math.ceil((new Date(m.planExpiryDate) - now) / (1000 * 60 * 60 * 24));
+            planOk = diffDays < 0;
+          }
+        }
+      }
+
+      return statusOk && searchOk && planOk;
     });
-  }, [members, memberSearch, memberStatusFilter]);
+
+    // Member Sort
+    list = [...list].sort((a, b) => {
+      if (memberSort === "NEWEST") return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+      if (memberSort === "OLDEST") return new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
+      if (memberSort === "NAME_ASC") return (a.name || "").localeCompare(b.name || "");
+      if (memberSort === "EXPIRY_SOON") {
+        const timeA = a.planExpiryDate ? new Date(a.planExpiryDate).getTime() : Infinity;
+        const timeB = b.planExpiryDate ? new Date(b.planExpiryDate).getTime() : Infinity;
+        return timeA - timeB;
+      }
+      return 0;
+    });
+
+    return list;
+  }, [members, memberSearch, memberStatusFilter, memberPlanFilter, memberSort]);
 
   useEffect(() => {
     setMemberPage(1);
-  }, [memberSearch, memberStatusFilter]);
+  }, [memberSearch, memberStatusFilter, memberPlanFilter, memberSort]);
 
   const paginatedMembers = useMemo(() => {
     const start = (memberPage - 1) * ITEMS_PER_PAGE;
@@ -241,20 +467,25 @@ export default function SocietyDashboard() {
           ? true
           : String(w.status || "").toUpperCase() === workerStatusFilter;
 
+      const typeOk =
+        workerTypeFilter === "ALL"
+          ? true
+          : (w.type || "") === workerTypeFilter;
+
       const searchOk =
         !q ||
-        [w.name, w.phone, w.role, w.employeeCode]
+        [w.name, w.phone, w.role, w.employeeCode, w.type, w.address]
           .filter(Boolean)
           .map((v) => String(v).toLowerCase())
           .some((v) => v.includes(q));
 
-      return statusOk && searchOk;
+      return statusOk && typeOk && searchOk;
     });
-  }, [workers, workerSearch, workerStatusFilter]);
+  }, [workers, workerSearch, workerStatusFilter, workerTypeFilter]);
 
   useEffect(() => {
     setWorkerPage(1);
-  }, [workerSearch, workerStatusFilter]);
+  }, [workerSearch, workerStatusFilter, workerTypeFilter]);
 
   const paginatedWorkers = useMemo(() => {
     const start = (workerPage - 1) * ITEMS_PER_PAGE;
@@ -269,6 +500,7 @@ export default function SocietyDashboard() {
     try {
       const isBlocked = status === "BLOCKED";
       await updateUserBlockStatus(memberId, isBlocked);
+
 
     setMembers((prev) =>
       (prev || []).map((m) =>
@@ -295,6 +527,11 @@ export default function SocietyDashboard() {
     try {
       const isBlocked = status === "BLOCKED";
       await updateUserBlockStatus(workerId, isBlocked);
+
+      if (!isBlocked) {
+        const isAvailable = status === "ON_DUTY";
+        await toggleUserAvailabilityApi(workerId, isAvailable);
+      }
 
     setWorkers((prev) =>
       (prev || []).map((w) =>
@@ -328,7 +565,7 @@ export default function SocietyDashboard() {
             style={{ color: themeColors.text }}
           >
             <FaBuilding />
-            Society Operator Dashboard
+            Society Admin Dashboard
             <span className="text-xs font-normal opacity-70 ml-1">
               (Live Data)
             </span>
@@ -367,6 +604,14 @@ export default function SocietyDashboard() {
             >
               {summary.totalMembers}
             </p>
+            <div className="flex flex-col mt-1">
+              <span className="text-[10px] font-medium text-green-600">
+                +{summary.membersThisWeek} added this week
+              </span>
+              <span className="text-[10px] opacity-60">
+                {summary.membersLastWeek} added last week
+              </span>
+            </div>
           </div>
         </div>
 
@@ -445,6 +690,14 @@ export default function SocietyDashboard() {
             >
               {summary.totalWorkers}
             </p>
+            <div className="flex flex-col mt-1">
+              <span className="text-[10px] font-medium text-green-600">
+                +{summary.workersThisWeek} added this week
+              </span>
+              <span className="text-[10px] opacity-60">
+                {summary.workersLastWeek} added last week
+              </span>
+            </div>
           </div>
         </div>
 
@@ -543,14 +796,114 @@ export default function SocietyDashboard() {
         <div className="p-4 md:p-5">
           {activeTab === "members" && (
             <>
-              {/* Filters */}
-              <div className="flex flex-col md:flex-row gap-3 md:items-center mb-4">
-                <div className="flex-1 relative">
+              {/* Members Quick Chips & Actions */}
+              <div className="flex flex-wrap items-center gap-2 mb-3 pb-3 border-b" style={{ borderColor: themeColors.border }}>
+                <span className="text-xs font-semibold opacity-60 flex items-center gap-1.5 mr-1" style={{ color: themeColors.text }}>
+                  <FaFilter className="text-[10px]" /> Quick:
+                </span>
+
+                <button
+                  type="button"
+                  onClick={resetMemberFilters}
+                  className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+                    !hasMemberFilters ? "ring-2 ring-blue-500 shadow-sm" : "opacity-80 hover:opacity-100"
+                  }`}
+                  style={{
+                    backgroundColor: !hasMemberFilters ? themeColors.primary : themeColors.background,
+                    color: !hasMemberFilters ? "#fff" : themeColors.text,
+                    border: `1px solid ${themeColors.border}`,
+                  }}
+                >
+                  All ({memberChips.total})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetMemberFilters();
+                    setMemberStatusFilter("ACTIVE");
+                  }}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+                    memberStatusFilter === "ACTIVE" ? "ring-2 ring-emerald-500 shadow-sm font-semibold" : "opacity-80 hover:opacity-100"
+                  }`}
+                  style={{
+                    backgroundColor: memberStatusFilter === "ACTIVE" ? "#10b981" : "#10b98115",
+                    color: memberStatusFilter === "ACTIVE" ? "#fff" : "#059669",
+                    border: `1px solid ${memberStatusFilter === "ACTIVE" ? "#10b981" : "#10b98130"}`,
+                  }}
+                >
+                  <FaCheckCircle className="text-[10px]" /> Active ({memberChips.active})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetMemberFilters();
+                    setMemberStatusFilter("BLOCKED");
+                  }}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+                    memberStatusFilter === "BLOCKED" ? "ring-2 ring-red-500 shadow-sm font-semibold" : "opacity-80 hover:opacity-100"
+                  }`}
+                  style={{
+                    backgroundColor: memberStatusFilter === "BLOCKED" ? "#ef4444" : "#ef444415",
+                    color: memberStatusFilter === "BLOCKED" ? "#fff" : "#dc2626",
+                    border: `1px solid ${memberStatusFilter === "BLOCKED" ? "#ef4444" : "#ef444430"}`,
+                  }}
+                >
+                  <FaBan className="text-[10px]" /> Blocked ({memberChips.blocked})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetMemberFilters();
+                    setMemberPlanFilter("EXPIRING_SOON");
+                  }}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+                    memberPlanFilter === "EXPIRING_SOON" ? "ring-2 ring-amber-500 shadow-sm font-semibold" : "opacity-80 hover:opacity-100"
+                  }`}
+                  style={{
+                    backgroundColor: memberPlanFilter === "EXPIRING_SOON" ? "#f59e0b" : "#f59e0b15",
+                    color: memberPlanFilter === "EXPIRING_SOON" ? "#fff" : "#d97706",
+                    border: `1px solid ${memberPlanFilter === "EXPIRING_SOON" ? "#f59e0b" : "#f59e0b30"}`,
+                  }}
+                >
+                  <FaClock className="text-[10px]" /> Expiring Soon ({memberChips.expiringSoon})
+                </button>
+
+                {/* Right actions */}
+                <div className="ml-auto flex items-center gap-2">
+                  {hasMemberFilters && (
+                    <button
+                      type="button"
+                      onClick={resetMemberFilters}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border text-red-600 bg-red-50 hover:bg-red-100 transition-colors"
+                      style={{ borderColor: "#fecaca" }}
+                      title="Reset filters"
+                    >
+                      <FaTimes className="text-[10px]" /> Clear
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleExportMembersCsv}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95"
+                    title="Export Members to Excel/CSV"
+                  >
+                    <FaDownload className="text-xs" /> Export CSV
+                  </button>
+                </div>
+              </div>
+
+              {/* Filters Bar */}
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-3 mb-4">
+                <div className="md:col-span-6 relative">
                   <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 opacity-60 text-xs" />
                   <input
                     value={memberSearch}
                     onChange={(e) => setMemberSearch(e.target.value)}
-                    placeholder="Search by name, flat no, phone, email"
+                    placeholder="Search by name, flat no, phone, email, address..."
                     className="w-full pl-8 pr-3 py-2 rounded-lg border text-sm"
                     style={{
                       borderColor: themeColors.border,
@@ -559,15 +912,9 @@ export default function SocietyDashboard() {
                     }}
                   />
                 </div>
-                <div className="min-w-[160px]">
-                  <label
-                    className="text-xs mb-1 block opacity-70"
-                    style={{ color: themeColors.text }}
-                  >
-                    Status
-                  </label>
+                <div className="md:col-span-2">
                   <select
-                    className="w-full p-2 rounded-lg border text-sm"
+                    className="w-full p-2 rounded-lg border text-xs md:text-sm"
                     style={{
                       borderColor: themeColors.border,
                       backgroundColor: themeColors.background,
@@ -576,12 +923,47 @@ export default function SocietyDashboard() {
                     value={memberStatusFilter}
                     onChange={(e) => setMemberStatusFilter(e.target.value)}
                   >
-                    <option value="ALL">All</option>
+                    <option value="ALL">All Status</option>
                     {MEMBER_STATUS_OPTIONS.map((o) => (
                       <option key={o.value} value={o.value}>
                         {o.label}
                       </option>
                     ))}
+                  </select>
+                </div>
+                <div className="md:col-span-2">
+                  <select
+                    className="w-full p-2 rounded-lg border text-xs md:text-sm"
+                    style={{
+                      borderColor: themeColors.border,
+                      backgroundColor: themeColors.background,
+                      color: themeColors.text,
+                    }}
+                    value={memberPlanFilter}
+                    onChange={(e) => setMemberPlanFilter(e.target.value)}
+                  >
+                    <option value="ALL">All Plans</option>
+                    <option value="FREE">Free Plan</option>
+                    <option value="PAID">Paid Plan (Active)</option>
+                    <option value="EXPIRING_SOON">⏳ Expiring (≤ 7d)</option>
+                    <option value="EXPIRED">⚠️ Expired</option>
+                  </select>
+                </div>
+                <div className="md:col-span-2">
+                  <select
+                    className="w-full p-2 rounded-lg border text-xs md:text-sm"
+                    style={{
+                      borderColor: themeColors.border,
+                      backgroundColor: themeColors.background,
+                      color: themeColors.text,
+                    }}
+                    value={memberSort}
+                    onChange={(e) => setMemberSort(e.target.value)}
+                  >
+                    <option value="NEWEST">Latest Joined</option>
+                    <option value="OLDEST">Oldest First</option>
+                    <option value="NAME_ASC">Name (A-Z)</option>
+                    <option value="EXPIRY_SOON">Renewal Soonest</option>
                   </select>
                 </div>
               </div>
@@ -596,11 +978,12 @@ export default function SocietyDashboard() {
                       }}
                     >
                       {[
-                        "Flat No.",
+                        "Address",
                         "Member Name",
                         "Contact",
                         "Status",
                         "Family / Vehicles",
+                        "Renewal Date",
                         "Joined On",
                         "Actions",
                       ].map((head) => (
@@ -623,10 +1006,11 @@ export default function SocietyDashboard() {
                       return (
                         <tr key={m.id}>
                           <td
-                            className="px-4 py-2 font-mono"
+                            className="px-4 py-2 text-xs"
                             style={{ color: themeColors.text }}
                           >
-                            {m.flatNumber || "-"}
+                            <div className="font-medium">{m.address}</div>
+                            <div className="text-[10px] opacity-70 mt-0.5">Pincode: {m.pincode}</div>
                           </td>
                           <td className="px-4 py-2">
                             <div
@@ -686,6 +1070,12 @@ export default function SocietyDashboard() {
                           </td>
                           <td
                             className="px-4 py-2 text-xs"
+                            style={getRenewalStyle(m.activePlan, m.planExpiryDate, themeColors.text)}
+                          >
+                            {m.planExpiryDate ? fmtDate(m.planExpiryDate) : "-"}
+                          </td>
+                          <td
+                            className="px-4 py-2 text-xs"
                             style={{ color: themeColors.text }}
                           >
                             {fmtDateTime(m.createdAt)}
@@ -731,7 +1121,7 @@ export default function SocietyDashboard() {
                     {paginatedMembers.length === 0 && (
                       <tr>
                         <td
-                          colSpan={7}
+                          colSpan={8}
                           className="px-4 py-8 text-center text-sm"
                           style={{ color: themeColors.text }}
                         >
@@ -777,14 +1167,114 @@ export default function SocietyDashboard() {
 
           {activeTab === "workers" && (
             <>
-              {/* Filters */}
-              <div className="flex flex-col md:flex-row gap-3 md:items-center mb-4">
-                <div className="flex-1 relative">
+              {/* Workers Quick Chips & Actions */}
+              <div className="flex flex-wrap items-center gap-2 mb-3 pb-3 border-b" style={{ borderColor: themeColors.border }}>
+                <span className="text-xs font-semibold opacity-60 flex items-center gap-1.5 mr-1" style={{ color: themeColors.text }}>
+                  <FaFilter className="text-[10px]" /> Quick:
+                </span>
+
+                <button
+                  type="button"
+                  onClick={resetWorkerFilters}
+                  className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+                    !hasWorkerFilters ? "ring-2 ring-blue-500 shadow-sm" : "opacity-80 hover:opacity-100"
+                  }`}
+                  style={{
+                    backgroundColor: !hasWorkerFilters ? themeColors.primary : themeColors.background,
+                    color: !hasWorkerFilters ? "#fff" : themeColors.text,
+                    border: `1px solid ${themeColors.border}`,
+                  }}
+                >
+                  All ({workerChips.total})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetWorkerFilters();
+                    setWorkerStatusFilter("ON_DUTY");
+                  }}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+                    workerStatusFilter === "ON_DUTY" ? "ring-2 ring-emerald-500 shadow-sm font-semibold" : "opacity-80 hover:opacity-100"
+                  }`}
+                  style={{
+                    backgroundColor: workerStatusFilter === "ON_DUTY" ? "#10b981" : "#10b98115",
+                    color: workerStatusFilter === "ON_DUTY" ? "#fff" : "#059669",
+                    border: `1px solid ${workerStatusFilter === "ON_DUTY" ? "#10b981" : "#10b98130"}`,
+                  }}
+                >
+                  <FaCheckCircle className="text-[10px]" /> On Duty ({workerChips.onDuty})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetWorkerFilters();
+                    setWorkerStatusFilter("OFF_DUTY");
+                  }}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+                    workerStatusFilter === "OFF_DUTY" ? "ring-2 ring-gray-500 shadow-sm font-semibold" : "opacity-80 hover:opacity-100"
+                  }`}
+                  style={{
+                    backgroundColor: workerStatusFilter === "OFF_DUTY" ? "#64748b" : "#64748b15",
+                    color: workerStatusFilter === "OFF_DUTY" ? "#fff" : "#475569",
+                    border: `1px solid ${workerStatusFilter === "OFF_DUTY" ? "#64748b" : "#64748b30"}`,
+                  }}
+                >
+                  <FaRegClock className="text-[10px]" /> Off Duty ({workerChips.offDuty})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetWorkerFilters();
+                    setWorkerStatusFilter("BLOCKED");
+                  }}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+                    workerStatusFilter === "BLOCKED" ? "ring-2 ring-red-500 shadow-sm font-semibold" : "opacity-80 hover:opacity-100"
+                  }`}
+                  style={{
+                    backgroundColor: workerStatusFilter === "BLOCKED" ? "#ef4444" : "#ef444415",
+                    color: workerStatusFilter === "BLOCKED" ? "#fff" : "#dc2626",
+                    border: `1px solid ${workerStatusFilter === "BLOCKED" ? "#ef4444" : "#ef444430"}`,
+                  }}
+                >
+                  <FaBan className="text-[10px]" /> Blocked ({workerChips.blocked})
+                </button>
+
+                {/* Right actions */}
+                <div className="ml-auto flex items-center gap-2">
+                  {hasWorkerFilters && (
+                    <button
+                      type="button"
+                      onClick={resetWorkerFilters}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border text-red-600 bg-red-50 hover:bg-red-100 transition-colors"
+                      style={{ borderColor: "#fecaca" }}
+                      title="Reset filters"
+                    >
+                      <FaTimes className="text-[10px]" /> Clear
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleExportWorkersCsv}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95"
+                    title="Export Workers to Excel/CSV"
+                  >
+                    <FaDownload className="text-xs" /> Export CSV
+                  </button>
+                </div>
+              </div>
+
+              {/* Filters Bar */}
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-3 mb-4">
+                <div className="md:col-span-6 relative">
                   <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 opacity-60 text-xs" />
                   <input
                     value={workerSearch}
                     onChange={(e) => setWorkerSearch(e.target.value)}
-                    placeholder="Search by name, role, phone, code"
+                    placeholder="Search by name, role, phone, code, address..."
                     className="w-full pl-8 pr-3 py-2 rounded-lg border text-sm"
                     style={{
                       borderColor: themeColors.border,
@@ -793,15 +1283,9 @@ export default function SocietyDashboard() {
                     }}
                   />
                 </div>
-                <div className="min-w-[160px]">
-                  <label
-                    className="text-xs mb-1 block opacity-70"
-                    style={{ color: themeColors.text }}
-                  >
-                    Status
-                  </label>
+                <div className="md:col-span-3">
                   <select
-                    className="w-full p-2 rounded-lg border text-sm"
+                    className="w-full p-2 rounded-lg border text-xs md:text-sm"
                     style={{
                       borderColor: themeColors.border,
                       backgroundColor: themeColors.background,
@@ -810,10 +1294,29 @@ export default function SocietyDashboard() {
                     value={workerStatusFilter}
                     onChange={(e) => setWorkerStatusFilter(e.target.value)}
                   >
-                    <option value="ALL">All</option>
+                    <option value="ALL">All Status</option>
                     {WORKER_STATUS_OPTIONS.map((o) => (
                       <option key={o.value} value={o.value}>
                         {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="md:col-span-3">
+                  <select
+                    className="w-full p-2 rounded-lg border text-xs md:text-sm"
+                    style={{
+                      borderColor: themeColors.border,
+                      backgroundColor: themeColors.background,
+                      color: themeColors.text,
+                    }}
+                    value={workerTypeFilter}
+                    onChange={(e) => setWorkerTypeFilter(e.target.value)}
+                  >
+                    <option value="ALL">All Service Types</option>
+                    {workerServiceTypes.map((type) => (
+                      <option key={type} value={type}>
+                        {type}
                       </option>
                     ))}
                   </select>
@@ -833,6 +1336,7 @@ export default function SocietyDashboard() {
                         "Name",
                         "Role / Code",
                         "Contact",
+                        "Address",
                         "Shift",
                         "Status",
                         "Last Check-in",
@@ -893,6 +1397,13 @@ export default function SocietyDashboard() {
                               <FaPhoneAlt className="text-[10px]" />
                               {w.phone || "-"}
                             </div>
+                          </td>
+                          <td
+                            className="px-4 py-2 text-xs"
+                            style={{ color: themeColors.text }}
+                          >
+                            <div className="font-medium max-w-[200px] truncate" title={w.address}>{w.address}</div>
+                            <div className="text-[10px] opacity-70 mt-0.5">Pincode: {w.pincode}</div>
                           </td>
                           <td
                             className="px-4 py-2 text-xs"
@@ -959,7 +1470,7 @@ export default function SocietyDashboard() {
                     {paginatedWorkers.length === 0 && (
                       <tr>
                         <td
-                          colSpan={7}
+                          colSpan={8}
                           className="px-4 py-8 text-center text-sm"
                           style={{ color: themeColors.text }}
                         >

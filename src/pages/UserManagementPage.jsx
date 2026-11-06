@@ -16,6 +16,14 @@ import {
   FaClock,
   FaMapMarkerAlt,
   FaImage,
+  FaWhatsapp,
+  FaFilter,
+  FaTimes,
+  FaDownload,
+  FaCheckCircle,
+  FaBan,
+  FaBolt,
+  FaCrown,
 } from "react-icons/fa";
 import { useTheme } from "../context/ThemeContext";
 import {
@@ -54,6 +62,15 @@ const fmtDate = (d) => {
   }
 };
 
+const getRenewalStyle = (plan, expiryDate, defaultColor) => {
+  if (!plan || plan === "free" || !expiryDate) return { color: defaultColor };
+  const diffTime = new Date(expiryDate) - new Date();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return { color: "#dc2626", fontWeight: "bold" };
+  if (diffDays <= 7) return { color: "#ea580c", fontWeight: "bold" };
+  return { color: defaultColor };
+};
+
 const emptyForm = {
   fullName: "",
   mobileNumber: "",
@@ -88,6 +105,11 @@ export default function UserManagementPage() {
   const [filterRole, setFilterRole] = useState("all");
   const [filterServiceCategory, setFilterServiceCategory] = useState("all");
   const [filterBlocked, setFilterBlocked] = useState("all"); // all | active | blocked
+  const [filterPlan, setFilterPlan] = useState("all"); // all | free | paid | expiring_soon | expired
+  const [filterTatkal, setFilterTatkal] = useState("all"); // all | yes | no
+  const [filterRwa, setFilterRwa] = useState("all"); // all | yes | no
+  const [filterDateRange, setFilterDateRange] = useState("all"); // all | today | this_week | this_month
+  const [sortBy, setSortBy] = useState("newest"); // newest | oldest | name_asc | name_desc | expiry_soon
 
   const [form, setForm] = useState(emptyForm);
   const [mode, setMode] = useState("create"); // "create" | "edit"
@@ -146,6 +168,130 @@ export default function UserManagementPage() {
     return Array.from(new Set([...fromUsers, ...fromApi]));
   }, [users, categories]);
 
+  // Quick chips counts
+  const chipCounts = useMemo(() => {
+    const now = new Date();
+    let expiringSoon = 0;
+    let tatkal = 0;
+    let rwa = 0;
+    let active = 0;
+    let blocked = 0;
+
+    (users || []).forEach((u) => {
+      if (u.isBlocked) blocked++;
+      else active++;
+
+      if (u.tatkalEnabled) tatkal++;
+      if (u.isRwaUser) rwa++;
+
+      if (u.planExpiryDate && u.activePlan && String(u.activePlan).toLowerCase() !== "free") {
+        const diffDays = Math.ceil((new Date(u.planExpiryDate) - now) / (1000 * 60 * 60 * 24));
+        if (diffDays >= 0 && diffDays <= 7) expiringSoon++;
+      }
+    });
+
+    return {
+      total: users?.length || 0,
+      active,
+      blocked,
+      expiringSoon,
+      tatkal,
+      rwa,
+    };
+  }, [users]);
+
+  // Check if any filter is active
+  const hasActiveFilters = useMemo(() => {
+    return (
+      Boolean(search.trim()) ||
+      filterRole !== "all" ||
+      filterServiceCategory !== "all" ||
+      filterBlocked !== "all" ||
+      filterPlan !== "all" ||
+      filterTatkal !== "all" ||
+      filterRwa !== "all" ||
+      filterDateRange !== "all" ||
+      sortBy !== "newest"
+    );
+  }, [
+    search,
+    filterRole,
+    filterServiceCategory,
+    filterBlocked,
+    filterPlan,
+    filterTatkal,
+    filterRwa,
+    filterDateRange,
+    sortBy,
+  ]);
+
+  const resetAllFilters = () => {
+    setSearch("");
+    setFilterRole("all");
+    setFilterServiceCategory("all");
+    setFilterBlocked("all");
+    setFilterPlan("all");
+    setFilterTatkal("all");
+    setFilterRwa("all");
+    setFilterDateRange("all");
+    setSortBy("newest");
+  };
+
+  // Export filtered users to CSV
+  const handleExportCsv = () => {
+    if (!filteredUsers || !filteredUsers.length) {
+      toast.error("No users found to export");
+      return;
+    }
+    const headers = [
+      "Full Name",
+      "Registration ID",
+      "Mobile Number",
+      "WhatsApp Number",
+      "Email",
+      "Role",
+      "Service Category",
+      "Active Plan",
+      "Plan Expiry Date",
+      "Tatkal Enabled",
+      "RWA Access",
+      "Status",
+      "Address",
+      "Pincode",
+      "Created At",
+    ];
+
+    const rows = filteredUsers.map((u) => [
+      `"${(u.fullName || "").replace(/"/g, '""')}"`,
+      `"${(u.registrationID || "").replace(/"/g, '""')}"`,
+      `"${(u.mobileNumber || "").toString().replace(/"/g, '""')}"`,
+      `"${(u.whatsappNumber || "").toString().replace(/"/g, '""')}"`,
+      `"${(u.email || "").replace(/"/g, '""')}"`,
+      `"${(u.role || "").replace(/"/g, '""')}"`,
+      `"${(typeof u.serviceCategory === "object" ? u.serviceCategory?.name : u.serviceCategory || "").replace(/"/g, '""')}"`,
+      `"${(u.activePlan || "free").replace(/"/g, '""')}"`,
+      `"${u.planExpiryDate ? fmtDate(u.planExpiryDate) : "-"}"`,
+      `"${u.tatkalEnabled ? "Yes" : "No"}"`,
+      `"${u.isRwaUser ? "Yes" : "No"}"`,
+      `"${u.isBlocked ? "Blocked" : "Active"}"`,
+      `"${(u.address || "").replace(/"/g, '""')}"`,
+      `"${u.pincode || ""}"`,
+      `"${u.createdAt ? fmtDateTime(u.createdAt) : "-"}"`,
+    ]);
+
+    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `users_export_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    toast.success("CSV export downloaded successfully!");
+  };
+
   // ===== FILTER USERS =====
   const filteredUsers = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -163,6 +309,7 @@ export default function UserManagementPage() {
           typeof u.serviceCategory === 'object' ? u.serviceCategory?.name : u.serviceCategory,
           u.registrationID,
           u.pincode,
+          u.address,
         ]
           .filter(Boolean)
           .map((v) => String(v).toLowerCase())
@@ -192,21 +339,156 @@ export default function UserManagementPage() {
       list = list.filter((u) => !u.isBlocked);
     }
 
+    // plan / renewal filter
+    if (filterPlan !== "all") {
+      const now = new Date();
+      list = list.filter((u) => {
+        const plan = (u.activePlan || "free").toLowerCase();
+        const isFree = !u.activePlan || plan === "free";
+
+        if (filterPlan === "free") return isFree;
+        if (filterPlan === "paid") return !isFree;
+
+        if (filterPlan === "expiring_soon") {
+          if (isFree || !u.planExpiryDate) return false;
+          const diffDays = Math.ceil((new Date(u.planExpiryDate) - now) / (1000 * 60 * 60 * 24));
+          return diffDays >= 0 && diffDays <= 7;
+        }
+
+        if (filterPlan === "expired") {
+          if (isFree || !u.planExpiryDate) return false;
+          const diffDays = Math.ceil((new Date(u.planExpiryDate) - now) / (1000 * 60 * 60 * 24));
+          return diffDays < 0;
+        }
+
+        return true;
+      });
+    }
+
+    // tatkal filter
+    if (filterTatkal === "yes") {
+      list = list.filter((u) => Boolean(u.tatkalEnabled));
+    } else if (filterTatkal === "no") {
+      list = list.filter((u) => !u.tatkalEnabled);
+    }
+
+    // RWA filter
+    if (filterRwa === "yes") {
+      list = list.filter((u) => Boolean(u.isRwaUser));
+    } else if (filterRwa === "no") {
+      list = list.filter((u) => !u.isRwaUser);
+    }
+
+    // Date range filter
+    if (filterDateRange !== "all") {
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const currentDay = startOfToday.getDay();
+      const distanceToMonday = currentDay === 0 ? 6 : currentDay - 1;
+      const startOfThisWeek = new Date(startOfToday);
+      startOfThisWeek.setDate(startOfToday.getDate() - distanceToMonday);
+      const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+      list = list.filter((u) => {
+        if (!u.createdAt) return false;
+        const d = new Date(u.createdAt);
+        if (filterDateRange === "today") return d >= startOfToday;
+        if (filterDateRange === "this_week") return d >= startOfThisWeek;
+        if (filterDateRange === "this_month") return d >= startOfThisMonth;
+        return true;
+      });
+    }
+
+    // Sorting
+    list = [...list].sort((a, b) => {
+      if (sortBy === "newest") {
+        return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+      }
+      if (sortBy === "oldest") {
+        return new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
+      }
+      if (sortBy === "name_asc") {
+        return (a.fullName || "").localeCompare(b.fullName || "");
+      }
+      if (sortBy === "name_desc") {
+        return (b.fullName || "").localeCompare(a.fullName || "");
+      }
+      if (sortBy === "expiry_soon") {
+        const timeA = a.planExpiryDate ? new Date(a.planExpiryDate).getTime() : Infinity;
+        const timeB = b.planExpiryDate ? new Date(b.planExpiryDate).getTime() : Infinity;
+        return timeA - timeB;
+      }
+      return 0;
+    });
+
     return list;
-  }, [users, search, filterRole, filterServiceCategory, filterBlocked]);
+  }, [
+    users,
+    search,
+    filterRole,
+    filterServiceCategory,
+    filterBlocked,
+    filterPlan,
+    filterTatkal,
+    filterRwa,
+    filterDateRange,
+    sortBy,
+  ]);
 
   const ITEMS_PER_PAGE = 10;
   const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, filterRole, filterServiceCategory, filterBlocked]);
+  }, [
+    search,
+    filterRole,
+    filterServiceCategory,
+    filterBlocked,
+    filterPlan,
+    filterTatkal,
+    filterRwa,
+    filterDateRange,
+    sortBy,
+  ]);
 
   const paginatedUsers = useMemo(() => {
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
     return filteredUsers.slice(start, start + ITEMS_PER_PAGE);
   }, [filteredUsers, currentPage]);
   const totalPages = Math.ceil(filteredUsers.length / ITEMS_PER_PAGE);
+
+  // ======== SUMMARY STATS =========
+  const usersStats = useMemo(() => {
+    const totalUsers = users.length;
+    
+    const now = new Date();
+    
+    // Start of today
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    
+    // Start of this week
+    const currentDay = startOfToday.getDay();
+    const distanceToMonday = currentDay === 0 ? 6 : currentDay - 1;
+    const startOfThisWeek = new Date(startOfToday);
+    startOfThisWeek.setDate(startOfToday.getDate() - distanceToMonday);
+
+    // Start of last week
+    const startOfLastWeek = new Date(startOfThisWeek);
+    startOfLastWeek.setDate(startOfThisWeek.getDate() - 7);
+
+    const usersThisWeek = users.filter(u => new Date(u.createdAt) >= startOfThisWeek).length;
+    const usersLastWeek = users.filter(u => {
+      const d = new Date(u.createdAt);
+      return d >= startOfLastWeek && d < startOfThisWeek;
+    }).length;
+
+    return {
+      totalUsers,
+      usersThisWeek,
+      usersLastWeek,
+    };
+  }, [users]);
 
   // ===== FORM HANDLERS =====
   const resetForm = () => {
@@ -495,6 +777,18 @@ export default function UserManagementPage() {
     }
   };
 
+
+
+  const handleRenewalClick = (user) => {
+    const phone = user.whatsappNumber || user.mobileNumber;
+    if (!phone) {
+      toast.error("No phone number available for this user");
+      return;
+    }
+    const message = `Hello ${user.fullName},%0A%0AYour subscription plan is expiring soon or needs renewal. Please renew your plan to continue using our services.%0A%0AThank you!`;
+    window.open(`https://wa.me/91${phone}?text=${message}`, "_blank");
+  };
+
   // ======= UI STATES =======
   if (loading) {
     return (
@@ -576,6 +870,43 @@ export default function UserManagementPage() {
         </div>
       </div>
 
+      {/* Summary cards */}
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div
+          className="rounded-2xl border p-4 flex items-center gap-3 shadow-sm"
+          style={{
+            backgroundColor: themeColors.surface,
+            borderColor: themeColors.border,
+          }}
+        >
+          <div className="p-3 rounded-xl" style={{ backgroundColor: "#00000010" }}>
+            <FaUsers className="text-lg" />
+          </div>
+          <div>
+            <p
+              className="text-xs uppercase font-semibold opacity-70"
+              style={{ color: themeColors.text }}
+            >
+              Total Registered Users
+            </p>
+            <p
+              className="text-2xl font-bold leading-tight"
+              style={{ color: themeColors.text }}
+            >
+              {usersStats.totalUsers}
+            </p>
+            <div className="flex flex-col mt-1">
+              <span className="text-[10px] font-medium text-green-600">
+                +{usersStats.usersThisWeek} added this week
+              </span>
+              <span className="text-[10px] opacity-60">
+                {usersStats.usersLastWeek} added last week
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* List Card */}
       <div
         className="rounded-2xl border shadow-sm p-4 md:p-5 flex flex-col"
@@ -584,6 +915,142 @@ export default function UserManagementPage() {
           borderColor: themeColors.border,
         }}
       >
+        {/* Quick Filter Chips */}
+        <div className="flex flex-wrap items-center gap-2 mb-3 pb-3 border-b" style={{ borderColor: themeColors.border }}>
+          <span className="text-xs font-semibold opacity-60 flex items-center gap-1.5 mr-1" style={{ color: themeColors.text }}>
+            <FaFilter className="text-[10px]" /> Quick:
+          </span>
+
+          <button
+            type="button"
+            onClick={resetAllFilters}
+            className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+              !hasActiveFilters ? "ring-2 ring-blue-500 shadow-sm" : "opacity-80 hover:opacity-100"
+            }`}
+            style={{
+              backgroundColor: !hasActiveFilters ? themeColors.primary : themeColors.background,
+              color: !hasActiveFilters ? "#fff" : themeColors.text,
+              border: `1px solid ${themeColors.border}`,
+            }}
+          >
+            All ({chipCounts.total})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              resetAllFilters();
+              setFilterBlocked("active");
+            }}
+            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+              filterBlocked === "active" ? "ring-2 ring-emerald-500 shadow-sm font-semibold" : "opacity-80 hover:opacity-100"
+            }`}
+            style={{
+              backgroundColor: filterBlocked === "active" ? "#10b981" : "#10b98115",
+              color: filterBlocked === "active" ? "#fff" : "#059669",
+              border: `1px solid ${filterBlocked === "active" ? "#10b981" : "#10b98130"}`,
+            }}
+          >
+            <FaCheckCircle className="text-[10px]" /> Active ({chipCounts.active})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              resetAllFilters();
+              setFilterBlocked("blocked");
+            }}
+            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+              filterBlocked === "blocked" ? "ring-2 ring-red-500 shadow-sm font-semibold" : "opacity-80 hover:opacity-100"
+            }`}
+            style={{
+              backgroundColor: filterBlocked === "blocked" ? "#ef4444" : "#ef444415",
+              color: filterBlocked === "blocked" ? "#fff" : "#dc2626",
+              border: `1px solid ${filterBlocked === "blocked" ? "#ef4444" : "#ef444430"}`,
+            }}
+          >
+            <FaBan className="text-[10px]" /> Blocked ({chipCounts.blocked})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              resetAllFilters();
+              setFilterPlan("expiring_soon");
+            }}
+            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+              filterPlan === "expiring_soon" ? "ring-2 ring-amber-500 shadow-sm font-semibold" : "opacity-80 hover:opacity-100"
+            }`}
+            style={{
+              backgroundColor: filterPlan === "expiring_soon" ? "#f59e0b" : "#f59e0b15",
+              color: filterPlan === "expiring_soon" ? "#fff" : "#d97706",
+              border: `1px solid ${filterPlan === "expiring_soon" ? "#f59e0b" : "#f59e0b30"}`,
+            }}
+          >
+            <FaClock className="text-[10px]" /> Expiring Soon ({chipCounts.expiringSoon})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              resetAllFilters();
+              setFilterTatkal("yes");
+            }}
+            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+              filterTatkal === "yes" ? "ring-2 ring-orange-500 shadow-sm font-semibold" : "opacity-80 hover:opacity-100"
+            }`}
+            style={{
+              backgroundColor: filterTatkal === "yes" ? "#f97316" : "#f9731615",
+              color: filterTatkal === "yes" ? "#fff" : "#ea580c",
+              border: `1px solid ${filterTatkal === "yes" ? "#f97316" : "#f9731630"}`,
+            }}
+          >
+            <FaBolt className="text-[10px]" /> Tatkal ({chipCounts.tatkal})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              resetAllFilters();
+              setFilterRwa("yes");
+            }}
+            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+              filterRwa === "yes" ? "ring-2 ring-purple-500 shadow-sm font-semibold" : "opacity-80 hover:opacity-100"
+            }`}
+            style={{
+              backgroundColor: filterRwa === "yes" ? "#8b5cf6" : "#8b5cf615",
+              color: filterRwa === "yes" ? "#fff" : "#7c3aed",
+              border: `1px solid ${filterRwa === "yes" ? "#8b5cf6" : "#8b5cf630"}`,
+            }}
+          >
+            <FaCrown className="text-[10px]" /> RWA ({chipCounts.rwa})
+          </button>
+
+          {/* Action buttons on the right */}
+          <div className="ml-auto flex items-center gap-2">
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={resetAllFilters}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border text-red-600 bg-red-50 hover:bg-red-100 transition-colors"
+                style={{ borderColor: "#fecaca" }}
+                title="Reset all filters"
+              >
+                <FaTimes className="text-[10px]" /> Clear Filters
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={handleExportCsv}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95"
+              title="Download currently filtered list as Excel/CSV"
+            >
+              <FaDownload className="text-xs" /> Export CSV
+            </button>
+          </div>
+        </div>
+
         {/* Search & count */}
         <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between mb-3">
           <div className="flex-1 relative">
@@ -611,58 +1078,161 @@ export default function UserManagementPage() {
           </div>
         </div>
 
-        {/* Filters */}
-        <div className="flex flex-wrap gap-2 mb-4">
+        {/* Filters Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2 mb-4">
           {/* Role filter */}
-          <select
-            value={filterRole}
-            onChange={(e) => setFilterRole(e.target.value)}
-            className="px-3 py-2 rounded-lg border text-xs md:text-sm"
-            style={{
-              borderColor: themeColors.border,
-              backgroundColor: themeColors.background,
-              color: themeColors.text,
-            }}
-          >
-            <option value="all">All Roles</option>
-            <option value="society member">Society Member</option>
-            <option value="society service">Society Service</option>
-          </select>
+          <div>
+            <label className="text-[10px] uppercase font-bold opacity-60 mb-0.5 block" style={{ color: themeColors.text }}>
+              Role
+            </label>
+            <select
+              value={filterRole}
+              onChange={(e) => setFilterRole(e.target.value)}
+              className="w-full px-2 py-1.5 rounded-lg border text-xs"
+              style={{
+                borderColor: themeColors.border,
+                backgroundColor: themeColors.background,
+                color: themeColors.text,
+              }}
+            >
+              <option value="all">All Roles</option>
+              <option value="society member">Society Member</option>
+              <option value="society service">Society Service</option>
+            </select>
+          </div>
 
           {/* Service Category filter */}
-          <select
-            value={filterServiceCategory}
-            onChange={(e) => setFilterServiceCategory(e.target.value)}
-            className="px-3 py-2 rounded-lg border text-xs md:text-sm"
-            style={{
-              borderColor: themeColors.border,
-              backgroundColor: themeColors.background,
-              color: themeColors.text,
-            }}
-          >
-            <option value="all">All Service Categories</option>
-            {serviceCategories.map((cat) => (
-              <option key={cat} value={cat}>
-                {cat}
-              </option>
-            ))}
-          </select>
+          <div>
+            <label className="text-[10px] uppercase font-bold opacity-60 mb-0.5 block" style={{ color: themeColors.text }}>
+              Category
+            </label>
+            <select
+              value={filterServiceCategory}
+              onChange={(e) => setFilterServiceCategory(e.target.value)}
+              className="w-full px-2 py-1.5 rounded-lg border text-xs"
+              style={{
+                borderColor: themeColors.border,
+                backgroundColor: themeColors.background,
+                color: themeColors.text,
+              }}
+            >
+              <option value="all">All Categories</option>
+              {serviceCategories.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
+          </div>
 
           {/* Blocked / Active filter */}
-          <select
-            value={filterBlocked}
-            onChange={(e) => setFilterBlocked(e.target.value)}
-            className="px-3 py-2 rounded-lg border text-xs md:text-sm"
-            style={{
-              borderColor: themeColors.border,
-              backgroundColor: themeColors.background,
-              color: themeColors.text,
-            }}
-          >
-            <option value="all">All Status</option>
-            <option value="active">Active (Unblocked)</option>
-            <option value="blocked">Blocked</option>
-          </select>
+          <div>
+            <label className="text-[10px] uppercase font-bold opacity-60 mb-0.5 block" style={{ color: themeColors.text }}>
+              Status
+            </label>
+            <select
+              value={filterBlocked}
+              onChange={(e) => setFilterBlocked(e.target.value)}
+              className="w-full px-2 py-1.5 rounded-lg border text-xs"
+              style={{
+                borderColor: themeColors.border,
+                backgroundColor: themeColors.background,
+                color: themeColors.text,
+              }}
+            >
+              <option value="all">All Status</option>
+              <option value="active">Active (Unblocked)</option>
+              <option value="blocked">Blocked</option>
+            </select>
+          </div>
+
+          {/* Plan / Subscription filter */}
+          <div>
+            <label className="text-[10px] uppercase font-bold opacity-60 mb-0.5 block" style={{ color: themeColors.text }}>
+              Plan & Renewal
+            </label>
+            <select
+              value={filterPlan}
+              onChange={(e) => setFilterPlan(e.target.value)}
+              className="w-full px-2 py-1.5 rounded-lg border text-xs font-medium"
+              style={{
+                borderColor: themeColors.border,
+                backgroundColor: themeColors.background,
+                color: themeColors.text,
+              }}
+            >
+              <option value="all">All Plans</option>
+              <option value="free">Free Plan</option>
+              <option value="paid">Paid Plan (Active)</option>
+              <option value="expiring_soon">⏳ Expiring Soon (≤ 7d)</option>
+              <option value="expired">⚠️ Expired</option>
+            </select>
+          </div>
+
+          {/* Tatkal Filter */}
+          <div>
+            <label className="text-[10px] uppercase font-bold opacity-60 mb-0.5 block" style={{ color: themeColors.text }}>
+              Tatkal Seva
+            </label>
+            <select
+              value={filterTatkal}
+              onChange={(e) => setFilterTatkal(e.target.value)}
+              className="w-full px-2 py-1.5 rounded-lg border text-xs"
+              style={{
+                borderColor: themeColors.border,
+                backgroundColor: themeColors.background,
+                color: themeColors.text,
+              }}
+            >
+              <option value="all">All Tatkal</option>
+              <option value="yes">⚡ Enabled (Yes)</option>
+              <option value="no">Disabled (No)</option>
+            </select>
+          </div>
+
+          {/* RWA Filter */}
+          <div>
+            <label className="text-[10px] uppercase font-bold opacity-60 mb-0.5 block" style={{ color: themeColors.text }}>
+              RWA Access
+            </label>
+            <select
+              value={filterRwa}
+              onChange={(e) => setFilterRwa(e.target.value)}
+              className="w-full px-2 py-1.5 rounded-lg border text-xs"
+              style={{
+                borderColor: themeColors.border,
+                backgroundColor: themeColors.background,
+                color: themeColors.text,
+              }}
+            >
+              <option value="all">All RWA</option>
+              <option value="yes">👑 RWA Access (Yes)</option>
+              <option value="no">Regular User (No)</option>
+            </select>
+          </div>
+
+          {/* Date Registered / Sort By */}
+          <div>
+            <label className="text-[10px] uppercase font-bold opacity-60 mb-0.5 block" style={{ color: themeColors.text }}>
+              Sort & Order
+            </label>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="w-full px-2 py-1.5 rounded-lg border text-xs"
+              style={{
+                borderColor: themeColors.border,
+                backgroundColor: themeColors.background,
+                color: themeColors.text,
+              }}
+            >
+              <option value="newest">Latest Joined</option>
+              <option value="oldest">Oldest First</option>
+              <option value="name_asc">Name (A to Z)</option>
+              <option value="name_desc">Name (Z to A)</option>
+              <option value="expiry_soon">Renewal Soonest</option>
+            </select>
+          </div>
         </div>
 
         {/* Table */}
@@ -680,6 +1250,8 @@ export default function UserManagementPage() {
                   "Email",
                   "Role",
                   "Service Category",
+                  "Active Plan",
+                  "Renewal Date",
                   "Tatkal",
                   "RWA Access",
                   "Blocked",
@@ -711,6 +1283,11 @@ export default function UserManagementPage() {
                       {u.registrationID && (
                         <span className="text-[11px] opacity-70">
                           ID: {u.registrationID}
+                        </span>
+                      )}
+                      {(u.empCode || u.onboardedBy?.empCode) && (
+                        <span className="inline-block mt-0.5 text-[10px] font-mono font-semibold bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded border border-purple-200">
+                          Emp: {u.empCode || u.onboardedBy?.empCode} {u.onboardedBy?.name ? `(${u.onboardedBy.name})` : ""}
                         </span>
                       )}
                     </div>
@@ -745,6 +1322,15 @@ export default function UserManagementPage() {
                     style={{ color: themeColors.text }}
                   >
                     {(typeof u.serviceCategory === 'object' ? u.serviceCategory?.name : u.serviceCategory) || "-"}
+                  </td>
+                  <td
+                    className="px-4 py-2 text-xs capitalize font-semibold"
+                    style={{ color: themeColors.primary }}
+                  >
+                    {u.activePlan || "free"}
+                  </td>
+                  <td className="px-4 py-2 text-xs" style={getRenewalStyle(u.activePlan, u.planExpiryDate, themeColors.text)}>
+                    {u.planExpiryDate ? fmtDate(u.planExpiryDate) : "-"}
                   </td>
                   <td className="px-4 py-2 text-xs">
                     <span
@@ -803,7 +1389,7 @@ export default function UserManagementPage() {
                     className="px-4 py-2 text-[11px]"
                     style={{ color: themeColors.text }}
                   >
-                    {fmtDateTime(u.createdAtIST || u.createdAt)}
+                    {fmtDateTime(u.createdAt || u.createdAtIST)}
                   </td>
                   <td className="px-4 py-2 text-xs">
                     <div className="flex flex-wrap items-center gap-2">
@@ -869,6 +1455,48 @@ export default function UserManagementPage() {
                         <span className="text-[11px] font-medium">
                           {u.isRwaUser ? "Revoke RWA" : "Grant RWA"}
                         </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleEditClick(u)}
+                        className="px-2 py-1 rounded-md border inline-flex items-center gap-1"
+                        style={{
+                          borderColor: themeColors.border,
+                          backgroundColor: themeColors.background,
+                          color: themeColors.text,
+                        }}
+                      >
+                        <FaEdit className="text-[11px]" />
+                        <span className="text-[11px]">Edit</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleRenewalClick(u)}
+                        className="px-2 py-1 rounded-md border inline-flex items-center gap-1"
+                        style={{
+                          borderColor: themeColors.primary,
+                          backgroundColor: themeColors.background,
+                          color: themeColors.primary,
+                        }}
+                      >
+                        <FaWhatsapp className="text-[11px]" />
+                        <span className="text-[11px]">Renew</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteClick(u)}
+                        className="px-2 py-1 rounded-md border inline-flex items-center gap-1"
+                        style={{
+                          borderColor: themeColors.danger,
+                          backgroundColor: themeColors.danger + "10",
+                          color: themeColors.danger,
+                        }}
+                      >
+                        <FaTrash className="text-[11px]" />
+                        <span className="text-[11px]">Delete</span>
                       </button>
                     </div>
                   </td>
@@ -1526,6 +2154,17 @@ export default function UserManagementPage() {
                                 {u.registrationID}
                               </span>
                             )}
+                            <div
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"
+                            style={{
+                              backgroundColor: themeColors.background,
+                              color: themeColors.text,
+                            }}
+                          >
+                            <span className="opacity-70">
+                              Service: {(typeof u.serviceCategory === 'object' ? u.serviceCategory?.name : u.serviceCategory)}
+                            </span>
+                          </div>
                             <span
                               className="px-2 py-0.5 rounded-full text-[11px] font-semibold"
                               style={{
@@ -1538,6 +2177,19 @@ export default function UserManagementPage() {
                               }}
                             >
                               Tatkal: {u.tatkalEnabled ? "Enabled" : "Disabled"}
+                            </span>
+                            <span
+                              className="px-2 py-0.5 rounded-full text-[11px] font-semibold"
+                              style={{
+                                backgroundColor: u.isRwaUser
+                                  ? "#6366F120"
+                                  : themeColors.border,
+                                color: u.isRwaUser
+                                  ? "#6366F1"
+                                  : themeColors.text,
+                              }}
+                            >
+                              RWA: {u.isRwaUser ? "Authorized Member" : "Regular Member"}
                             </span>
                             <span
                               className="px-2 py-0.5 rounded-full text-[11px] font-semibold"
@@ -1576,7 +2228,7 @@ export default function UserManagementPage() {
                                   border: `1px solid ${themeColors.border}`,
                                 }}
                               >
-                                Service: {(typeof u.serviceCategory === 'object' ? u.serviceCategory?.name : u.serviceCategory)}
+                                Service: {typeof u.serviceCategory === 'object' ? u.serviceCategory?.name : u.serviceCategory}
                               </span>
                             )}
                             {u.experience && (
@@ -1926,7 +2578,7 @@ export default function UserManagementPage() {
                             )}
                             <div className="flex justify-between items-center mt-1 text-[10px] opacity-80">
                               {tpl.serviceCategory && (
-                                <span>{(typeof tpl.serviceCategory === 'object' ? tpl.serviceCategory?.name : tpl.serviceCategory)}</span>
+                                <span>{typeof tpl.serviceCategory === 'object' ? tpl.serviceCategory?.name : tpl.serviceCategory}</span>
                               )}
                               <span>
                                 {fmtDate(tpl.createdAtIST || tpl.createdAt)}
